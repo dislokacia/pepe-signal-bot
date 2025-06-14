@@ -25,8 +25,6 @@ def home():
 @app.route("/report-daily")
 def report():
     try:
-        send_message("🔧 Тест: Cron вызвал report-daily, бот работает.")  # отладка
-
         params = {
             "vs_currency": "usd",
             "days": "1",
@@ -37,7 +35,9 @@ def report():
 
         prices = data.get("prices", [])
         if len(prices) < 30:
-            return "Недостаточно данных для анализа MACD.", 200
+            msg = "⚠️ Недостаточно данных от CoinGecko для анализа MACD."
+            send_message(msg)
+            return msg, 200
 
         df = pd.DataFrame(prices, columns=["timestamp", "price"])
         df["price"] = df["price"].astype(float)
@@ -48,7 +48,9 @@ def report():
         signal = macd.ewm(span=9).mean()
 
         if len(macd) < 3 or len(signal) < 3:
-            return "Недостаточно данных для анализа MACD.", 200
+            msg = "⚠️ MACD/Signal слишком короткие. Нет возможности сравнить значения."
+            send_message(msg)
+            return msg, 200
 
         last_macd = macd.iloc[-1]
         last_signal = signal.iloc[-1]
@@ -72,5 +74,4 @@ def report():
         return error_msg, 500
 
 app.run(host="0.0.0.0", port=10000)
-
 
