@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask
 import requests
 import pandas as pd
 
@@ -7,36 +7,54 @@ app = Flask(__name__)
 BOT_TOKEN = "7648757274:AAFtd6ZSR8woBGkcQ7NBOPE559zHwdH65Cw"
 CHAT_IDS = ["788954480", "6220574513"]
 
-BINANCE_URL = "https://api.binance.com/api/v3/klines"
+COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/pepe/market_chart"
 
 def send_message(text):
     for chat_id in CHAT_IDS:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         data = {"chat_id": chat_id, "text": text}
-        requests.post(url, data=data)
+        try:
+            requests.post(url, data=data, timeout=5)
+        except:
+            pass
+
+@app.route("/")
+def home():
+    return "✅ PEPE Signal Bot (CoinGecko) is running."
 
 @app.route("/report-daily")
 def report():
     try:
-        params = {"symbol": "PEPEUSDT", "interval": "15m", "limit": 100}
-        r = requests.get(BINANCE_URL, params=params)
+        params = {
+            "vs_currency": "usd",
+            "days": "1",
+            "interval": "minutely"
+        }
+        r = requests.get(COINGECKO_URL, params=params, timeout=5)
         data = r.json()
 
-        df = pd.DataFrame(data, columns=['time', 'open', 'high', 'low', 'close', 'volume', '_', '_', '_', '_', '_', '_'])
-        df['close'] = df['close'].astype(float)
+        prices = data.get("prices", [])
+        if len(prices) < 30:
+            return "Недостаточно данных для анализа MACD.", 200
 
-        ema12 = df['close'].ewm(span=12).mean()
-        ema26 = df['close'].ewm(span=26).mean()
+        df = pd.DataFrame(prices, columns=["timestamp", "price"])
+        df["price"] = df["price"].astype(float)
+
+        ema12 = df["price"].ewm(span=12).mean()
+        ema26 = df["price"].ewm(span=26).mean()
         macd = ema12 - ema26
         signal = macd.ewm(span=9).mean()
+
+        if len(macd) < 3 or len(signal) < 3:
+            return "Недостаточно данных для анализа MACD.", 200
 
         last_macd = macd.iloc[-1]
         last_signal = signal.iloc[-1]
         prev_macd = macd.iloc[-2]
         prev_signal = signal.iloc[-2]
 
-        macd_val = round(last_macd, 8)
-        signal_val = round(last_signal, 8)
+        macd_val = round(last_macd, 10)
+        signal_val = round(last_signal, 10)
 
         if prev_macd < prev_signal and last_macd > last_signal:
             decision = f"📈 MACD: {macd_val} выше сигнальной {signal_val} → Пересечение вверх. Сигнал на покупку PEPE."
@@ -47,11 +65,9 @@ def report():
         return decision
 
     except Exception as e:
-        send_message(f"Ошибка: {e}")
-        return f"Error: {e}", 500
-
-@app.route("/")
-def home():
-    return "✅ PEPE Signal Bot is running."
+        error_msg = f"Ошибка: {str(e)}"
+        send_message(error_msg)
+        return error_msg, 500
 
 app.run(host="0.0.0.0", port=10000)
+
