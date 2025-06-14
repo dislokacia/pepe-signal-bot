@@ -10,6 +10,10 @@ CHAT_IDS = ["788954480", "6220574513"]
 BINANCE_URL = "https://api.binance.com/api/v3/klines"
 COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/pepe/market_chart"
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; CryptoBot/1.0; +https://cryptogpt.app)"
+}
+
 def send_message(text):
     for chat_id in CHAT_IDS:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -30,14 +34,13 @@ def calculate_rsi(series, period=14):
 
 @app.route("/")
 def home():
-    return "✅ PEPE Hybrid Signal Bot is running."
+    return "✅ PEPE Hybrid Bot w/Headers is running."
 
 @app.route("/report-daily")
 def report():
     try:
-        # 1. Пытаемся взять с Binance
         params = {"symbol": "PEPEUSDT", "interval": "5m", "limit": 200}
-        r = requests.get(BINANCE_URL, params=params, timeout=5)
+        r = requests.get(BINANCE_URL, params=params, headers=HEADERS, timeout=10)
         data = r.json()
 
         if isinstance(data, list) and len(data) >= 30:
@@ -68,7 +71,7 @@ def report():
         # 2. Fallback на CoinGecko + RSI
         try:
             cg_params = {"vs_currency": "usd", "days": "1", "interval": "hourly"}
-            r = requests.get(COINGECKO_URL, params=cg_params, timeout=5)
+            r = requests.get(COINGECKO_URL, params=cg_params, headers=HEADERS, timeout=10)
             data = r.json().get("prices", [])
 
             if len(data) < 20:
