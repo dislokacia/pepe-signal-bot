@@ -32,7 +32,7 @@ def report():
         if not isinstance(data, list) or len(data) < 30:
             msg = "⚠️ Недостаточно данных от Binance для MACD."
             send_message(msg)
-            return msg, 200
+            return "✅ Sent to Telegram", 200
 
         df = pd.DataFrame(data, columns=['time', 'open', 'high', 'low', 'close', 'volume', '_', '_', '_', '_', '_', '_'])
         df['close'] = df['close'].astype(float)
@@ -45,7 +45,7 @@ def report():
         if len(macd) < 3 or len(signal) < 3:
             msg = "⚠️ MACD/Signal слишком короткие. Нет возможности сравнить значения."
             send_message(msg)
-            return msg, 200
+            return "✅ Sent to Telegram", 200
 
         last_macd = macd.iloc[-1]
         last_signal = signal.iloc[-1]
@@ -61,11 +61,11 @@ def report():
             decision = f"📊 MACD (5m): {macd_val}, Сигнальная: {signal_val} → Пока без сигнала."
 
         send_message(decision)
-        return decision
+        return "✅ Sent to Telegram", 200
 
     except Exception as e:
         error_msg = f"Ошибка: {str(e)}"
         send_message(error_msg)
-        return error_msg, 500
+        return "✅ Sent to Telegram (с ошибкой)", 200
 
 app.run(host="0.0.0.0", port=10000)
