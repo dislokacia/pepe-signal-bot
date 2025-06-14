@@ -50,4 +50,8 @@ def report():
         send_message(f"Ошибка: {e}")
         return f"Error: {e}", 500
 
+@app.route("/")
+def home():
+    return "✅ PEPE Signal Bot is running."
+
 app.run()
