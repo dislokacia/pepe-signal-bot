@@ -54,4 +54,4 @@ def report():
 def home():
     return "✅ PEPE Signal Bot is running."
 
-app.run()
+app.run(host="0.0.0.0", port=10000)
