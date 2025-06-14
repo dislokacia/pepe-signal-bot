@@ -25,6 +25,8 @@ def home():
 @app.route("/report-daily")
 def report():
     try:
+        send_message("🔧 Тест: Cron вызвал report-daily, бот работает.")  # отладка
+
         params = {
             "vs_currency": "usd",
             "days": "1",
@@ -70,4 +72,5 @@ def report():
         return error_msg, 500
 
 app.run(host="0.0.0.0", port=10000)
+
 
