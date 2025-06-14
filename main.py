@@ -20,12 +20,12 @@ def send_message(text):
 
 @app.route("/")
 def home():
-    return "✅ PEPE Signal Bot (Binance) is running."
+    return "✅ PEPE Signal Bot (Binance 5m) is running."
 
 @app.route("/report-daily")
 def report():
     try:
-        params = {"symbol": "PEPEUSDT", "interval": "15m", "limit": 100}
+        params = {"symbol": "PEPEUSDT", "interval": "5m", "limit": 200}
         r = requests.get(BINANCE_URL, params=params, timeout=5)
         data = r.json()
 
@@ -56,9 +56,9 @@ def report():
         signal_val = round(last_signal, 10)
 
         if prev_macd < prev_signal and last_macd > last_signal:
-            decision = f"📈 MACD: {macd_val} выше сигнальной {signal_val} → Пересечение вверх. Сигнал на покупку PEPE."
+            decision = f"📈 MACD (5m): {macd_val} выше сигнальной {signal_val} → Пересечение вверх. Сигнал на покупку PEPE."
         else:
-            decision = f"📊 MACD: {macd_val}, Сигнальная: {signal_val} → Пока без сигнала."
+            decision = f"📊 MACD (5m): {macd_val}, Сигнальная: {signal_val} → Пока без сигнала."
 
         send_message(decision)
         return decision
