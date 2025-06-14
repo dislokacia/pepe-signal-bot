@@ -7,7 +7,7 @@ app = Flask(__name__)
 BOT_TOKEN = "7648757274:AAFtd6ZSR8woBGkcQ7NBOPE559zHwdH65Cw"
 CHAT_IDS = ["788954480", "6220574513"]
 
-COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/pepe/market_chart"
+BINANCE_URL = "https://api.binance.com/api/v3/klines"
 
 def send_message(text):
     for chat_id in CHAT_IDS:
@@ -20,30 +20,25 @@ def send_message(text):
 
 @app.route("/")
 def home():
-    return "✅ PEPE Signal Bot (CoinGecko) is running."
+    return "✅ PEPE Signal Bot (Binance) is running."
 
 @app.route("/report-daily")
 def report():
     try:
-        params = {
-            "vs_currency": "usd",
-            "days": "1",
-            "interval": "minutely"
-        }
-        r = requests.get(COINGECKO_URL, params=params, timeout=5)
+        params = {"symbol": "PEPEUSDT", "interval": "15m", "limit": 100}
+        r = requests.get(BINANCE_URL, params=params, timeout=5)
         data = r.json()
 
-        prices = data.get("prices", [])
-        if len(prices) < 30:
-            msg = "⚠️ Недостаточно данных от CoinGecko для анализа MACD."
+        if not isinstance(data, list) or len(data) < 30:
+            msg = "⚠️ Недостаточно данных от Binance для MACD."
             send_message(msg)
             return msg, 200
 
-        df = pd.DataFrame(prices, columns=["timestamp", "price"])
-        df["price"] = df["price"].astype(float)
+        df = pd.DataFrame(data, columns=['time', 'open', 'high', 'low', 'close', 'volume', '_', '_', '_', '_', '_', '_'])
+        df['close'] = df['close'].astype(float)
 
-        ema12 = df["price"].ewm(span=12).mean()
-        ema26 = df["price"].ewm(span=26).mean()
+        ema12 = df['close'].ewm(span=12).mean()
+        ema26 = df['close'].ewm(span=26).mean()
         macd = ema12 - ema26
         signal = macd.ewm(span=9).mean()
 
@@ -74,4 +69,3 @@ def report():
         return error_msg, 500
 
 app.run(host="0.0.0.0", port=10000)
-
