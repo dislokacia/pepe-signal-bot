@@ -35,10 +35,13 @@ def report():
         prev_macd = macd.iloc[-2]
         prev_signal = signal.iloc[-2]
 
+        macd_val = round(last_macd, 8)
+        signal_val = round(last_signal, 8)
+
         if prev_macd < prev_signal and last_macd > last_signal:
-            decision = "📈 Сигнал: MACD пересёк вверх. Покупать PEPE."
+            decision = f"📈 MACD: {macd_val} выше сигнальной {signal_val} → Пересечение вверх. Сигнал на покупку PEPE."
         else:
-            decision = "⏳ Пока сигналов на покупку нет."
+            decision = f"📊 MACD: {macd_val}, Сигнальная: {signal_val} → Пока без сигнала."
 
         send_message(decision)
         return decision
