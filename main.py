@@ -1,71 +1,77 @@
-
-from flask import Flask
+from flask import Flask, request
 import requests
 import pandas as pd
-from datetime import datetime, timedelta
-import numpy as np
+import pandas_ta as ta
+import time
 
 app = Flask(__name__)
 
-def fetch_pepe_data():
-    url = "https://api.binance.com/api/v3/klines?symbol=PEPEUSDT&interval=15m&limit=100"
-    response = requests.get(url)
-    data = response.json()
-    df = pd.DataFrame(data, columns=[
-        "timestamp", "open", "high", "low", "close", "volume", "close_time",
-        "quote_asset_volume", "number_of_trades", "taker_buy_base", "taker_buy_quote", "ignore"
-    ])
-    df["close"] = pd.to_numeric(df["close"])
-    df["timestamp"] = pd.to_datetime(df["timestamp"], unit='ms')
-    return df
+TELEGRAM_TOKEN = "7648757274:AAFtd6ZSR8woBGkcQ7NBOPE559zHwdH65Cw"
+CHAT_IDS = [6220574513, 788954480]
 
-def calculate_macd(df):
-    df["EMA12"] = df["close"].ewm(span=12, adjust=False).mean()
-    df["EMA26"] = df["close"].ewm(span=26, adjust=False).mean()
-    df["MACD"] = df["EMA12"] - df["EMA26"]
-    df["Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
-    return df
-
-def generate_signal(df):
-    if df["MACD"].iloc[-1] > df["Signal"].iloc[-1] and df["MACD"].iloc[-2] <= df["Signal"].iloc[-2]:
-        return "🔼 Бычий сигнал (пересечение снизу)"
-    elif df["MACD"].iloc[-1] < df["Signal"].iloc[-1] and df["MACD"].iloc[-2] >= df["Signal"].iloc[-2]:
-        return "🔽 Медвежий сигнал (пересечение сверху)"
-    else:
-        return "➖ Сигналов нет"
+BINANCE_API_URL = "https://api.binance.com/api/v3/klines"
 
 def send_to_telegram(message):
-    url = "https://api.telegram.org/bot7648757274:AAFtd6ZSR8woBGkcQ7NBOPE559zHwdH65Cw/sendMessage"
-    for chat_id in ["6220574513", "788954480"]:
-        data = {
-            "chat_id": chat_id,
-            "text": message
-        }
-        requests.post(url, data=data)
+    for chat_id in CHAT_IDS:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {"chat_id": chat_id, "text": message}
+        try:
+            requests.post(url, data=payload)
+        except Exception as e:
+            print(f"Ошибка при отправке в Telegram: {e}")
 
-@app.route("/")
-def home():
-    return "PEPE bot active"
+def get_klines(symbol, interval='15m', limit=100):
+    url = f"{BINANCE_API_URL}?symbol={symbol}&interval={interval}&limit={limit}"
+    response = requests.get(url)
+    data = response.json()
+    df = pd.DataFrame(data, columns=['time','o','h','l','c','v','ct','qv','n','taker_base_vol','taker_quote_vol','ignore'])
+    df['c'] = df['c'].astype(float)
+    return df
 
-@app.route("/report-daily")
-def report():
+def analyze_symbol(symbol):
+    df = get_klines(symbol)
+    df['MACD'] = ta.macd(df['c'])['MACD_12_26_9']
+    df['MACD_signal'] = ta.macd(df['c'])['MACDs_12_26_9']
+    df['RSI'] = ta.rsi(df['c'])
+    df['EMA20'] = ta.ema(df['c'], length=20)
+
+    macd = df['MACD'].iloc[-1]
+    signal = df['MACD_signal'].iloc[-1]
+    rsi = df['RSI'].iloc[-1]
+    ema = df['EMA20'].iloc[-1]
+    price = df['c'].iloc[-1]
+
+    message = (
+        f"📊 Анализ {symbol}:
+"
+        f"Цена: {price:.6f} USD\n"
+        f"MACD: {macd:.6f}, Сигнал: {signal:.6f}\n"
+        f"RSI: {rsi:.2f}\n"
+        f"EMA (20): {ema:.6f}\n"
+    )
+
+    if macd > signal and rsi < 70:
+        message += "Рекомендация: 📈 Покупать или держать."
+    elif macd < signal and rsi > 70:
+        message += "Рекомендация: 📉 Продавать."
+    else:
+        message += "Рекомендация: ⏸️ Подождать."
+
+    return message
+
+@app.route("/analyze")
+def analyze():
     try:
-        df = fetch_pepe_data()
-        if len(df) < 26:
-            send_to_telegram("⚠️ Недостаточно данных от Binance для MACD.")
-            return "Недостаточно данных"
-        df = calculate_macd(df)
-        signal = generate_signal(df)
-        price = df["close"].iloc[-1]
-        send_to_telegram(
-            f"📊 PEPE анализ:\n"
-            f"Цена: {price}\n"
-            f"MACD: {df['MACD'].iloc[-1]:.8f}\n"
-            f"Сигнал: {signal}"
-        )
-        return "Отчет отправлен"
+        symbols = ['PEPEUSDT', 'JTOUSDT', 'SOLUSDT', 'ETHUSDT']
+        full_message = ""
+        for symbol in symbols:
+            full_message += analyze_symbol(symbol) + "\n\n"
+            time.sleep(1)  # небольшая задержка для API Binance
+
+        send_to_telegram(full_message)
+        return "Анализ отправлен"
     except Exception as e:
-        send_to_telegram(f"❗ Ошибка в отчете PEPE: {str(e)}")
+        send_to_telegram(f"❗ Ошибка анализа: {str(e)}")
         return f"Ошибка: {str(e)}"
 
 if __name__ == "__main__":
