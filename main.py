@@ -57,16 +57,12 @@ def analyze_symbol(symbol: str):
         )
 
         message = (
-            f"📊 Анализ {symbol}:
-"
-            f"Цена: {latest['close']:.6f}
-"
-            f"MACD: {latest['MACD']:.6f}, Signal: {latest['Signal']:.6f}
-"
-            f"RSI: {latest['RSI']:.2f} ({rsi_state})
-"
-            f"Тренд: {trend}"
-        )
+    f"📊 Анализ {symbol}:\n"
+    f"Цена: {latest['close']:.6f}\n"
+    f"MACD: {latest['MACD']:.6f}, Signal: {latest['Signal']:.6f}\n"
+    f"RSI: {latest['RSI']:.2f} ({rsi_state})\n"
+    f"Тренд: {trend}"
+)
         send_to_telegram(message)
     except Exception as e:
         send_to_telegram(f"❗ Ошибка анализа {symbol}: {str(e)}")
