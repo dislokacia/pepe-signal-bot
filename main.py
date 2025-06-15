@@ -1,3 +1,4 @@
+from flask import FlaskMore actions
 import requests
 import pandas as pd
 from datetime import datetime, timedelta
@@ -54,16 +55,16 @@ def report():
         df = calculate_macd(df)
         signal = generate_signal(df)
         price = df["close"].iloc[-1]
-        send_to_telegram(f"📊 PEPE анализ:
-Цена: {price}
-MACD: {df['MACD'].iloc[-1]:.8f}
-Сигнал: {signal}")
-
-
+        send_to_telegram(
+    f"📊 PEPE анализ:\n"
+    f"Цена: {price}\n"
+    f"MACD: {df['MACD'].iloc[-1]:.8f}\n"
+    f"Сигнал: {signal}"
+)
         return "Отчет отправлен"
     except Exception as e:
         send_to_telegram(f"❗ Ошибка в отчете PEPE: {str(e)}")
         return f"Ошибка: {str(e)}"
 
-if __name__ == "__main__":
+if __name__ == "__main__":More actions
     app.run(host="0.0.0.0", port=5000)
