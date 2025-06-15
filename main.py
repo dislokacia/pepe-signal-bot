@@ -1,67 +1,68 @@
-
+from flask import Flask
 import requests
 import pandas as pd
-from flask import Flask
-from datetime import datetime
+from datetime import datetime, timedelta
+import numpy as np
 
 app = Flask(__name__)
 
-TOKEN = "7648757274:AAFtd6ZSR8woBGkcQ7NBOPE559zHwdH65Cw"
-CHAT_IDS = ["788954480", "6220574513"]
-
-def send_to_telegram(text):
-    for chat_id in CHAT_IDS:
-        url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-        data = {
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "Markdown"
-        }
-        requests.post(url, data=data)
-
-def fetch_data():
-    url = "https://api.binance.com/api/v3/klines"
-    params = {
-        "symbol": "PEPEUSDT",
-        "interval": "15m",
-        "limit": 100
-    }
-    response = requests.get(url, params=params)
-    if response.status_code != 200:
-        return None
+def fetch_pepe_data():
+    url = "https://api.binance.com/api/v3/klines?symbol=PEPEUSDT&interval=15m&limit=100"
+    response = requests.get(url)
     data = response.json()
     df = pd.DataFrame(data, columns=[
-        "timestamp", "open", "high", "low", "close", "volume",
-        "close_time", "quote_asset_volume", "number_of_trades",
-        "taker_buy_base", "taker_buy_quote", "ignore"
+        "timestamp", "open", "high", "low", "close", "volume", "close_time",
+        "quote_asset_volume", "number_of_trades", "taker_buy_base", "taker_buy_quote", "ignore"
     ])
-    df["close"] = df["close"].astype(float)
+    df["close"] = pd.to_numeric(df["close"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit='ms')
     return df
 
 def calculate_macd(df):
-    df["ema12"] = df["close"].ewm(span=12, adjust=False).mean()
-    df["ema26"] = df["close"].ewm(span=26, adjust=False).mean()
-    df["macd"] = df["ema12"] - df["ema26"]
-    df["signal"] = df["macd"].ewm(span=9, adjust=False).mean()
+    df["EMA12"] = df["close"].ewm(span=12, adjust=False).mean()
+    df["EMA26"] = df["close"].ewm(span=26, adjust=False).mean()
+    df["MACD"] = df["EMA12"] - df["EMA26"]
+    df["Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
     return df
+
+def generate_signal(df):
+    if df["MACD"].iloc[-1] > df["Signal"].iloc[-1] and df["MACD"].iloc[-2] <= df["Signal"].iloc[-2]:
+        return "🔼 Бычий сигнал (пересечение снизу)"
+    elif df["MACD"].iloc[-1] < df["Signal"].iloc[-1] and df["MACD"].iloc[-2] >= df["Signal"].iloc[-2]:
+        return "🔽 Медвежий сигнал (пересечение сверху)"
+    else:
+        return "➖ Сигналов нет"
+
+def send_to_telegram(message):
+    url = "https://api.telegram.org/bot<your_token>/sendMessage"
+    data = {
+        "chat_id": "<your_chat_id>",
+        "text": message
+    }
+    requests.post(url, data=data)
+
+@app.route("/")
+def home():
+    return "PEPE bot active"
 
 @app.route("/report-daily")
 def report():
-    df = fetch_data()
-    if df is None or len(df) < 26:
-        return "Недостаточно данных от Binance для MACD."
-    df = calculate_macd(df)
-    last = df.iloc[-1]
-    macd = last["macd"]
-    signal = last["signal"]
-    trend = "🟢 *ПОКУПАТЬ*" if macd > signal else "🔴 *ПРОДАВАТЬ*"
-    send_to_telegram(f"""📊 PEPE анализ:
-
-MACD: `{macd:.8f}`
-Signal: `{signal:.8f}`
-Тренд: {trend}
-""")
-    return "Сообщение отправлено"
+    try:
+        df = fetch_pepe_data()
+        if len(df) < 26:
+            send_to_telegram("⚠️ Недостаточно данных от Binance для MACD.")
+            return "Недостаточно данных"
+        df = calculate_macd(df)
+        signal = generate_signal(df)
+        price = df["close"].iloc[-1]
+        send_to_telegram(f"📊 PEPE анализ:
+Цена: {price}
+MACD: {df['MACD'].iloc[-1]:.8f}
+Сигнал: {signal}")
+        return "Отчет отправлен"
+    except Exception as e:
+        send_to_telegram(f"❗ Ошибка в отчете PEPE: {str(e)}")
+        return f"Ошибка: {str(e)}"
 
 if __name__ == "__main__":
-    app.run()
+    app.run(host="0.0.0.0", port=5000)
