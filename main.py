@@ -1,78 +1,88 @@
+
 import requests
 import pandas as pd
-from flask import Flask, request
-from datetime import datetime, timedelta
+import pandas_ta as ta
+from flask import Flask
+from datetime import datetime
+import os
 
 app = Flask(__name__)
 
 TELEGRAM_TOKEN = "7648757274:AAFtd6ZSR8woBGkcQ7NBOPE559zHwdH65Cw"
 CHAT_IDS = ["6220574513", "788954480"]
+BINANCE_URL = "https://api.binance.com/api/v3/klines"
 
-symbols = ["PEPEUSDT", "JTOUSDT", "ETHUSDT", "SOLUSDT"]
+def fetch_klines(symbol, interval="1h", limit=100):
+    try:
+        url = f"{BINANCE_URL}?symbol={symbol}&interval={interval}&limit={limit}"
+        response = requests.get(url)
+        data = response.json()
+        if not isinstance(data, list):
+            return None
+        df = pd.DataFrame(data, columns=["timestamp", "open", "high", "low", "close", "volume", "", "", "", "", "", ""])
+        df["close"] = pd.to_numeric(df["close"])
+        return df
+    except Exception as e:
+        print(f"Ошибка загрузки {symbol}: {str(e)}")
+        return None
 
+def calculate_indicators(df):
+    df["EMA"] = ta.ema(df["close"], length=20)
+    macd = ta.macd(df["close"])
+    df["MACD"] = macd["MACD_12_26_9"]
+    df["MACD_signal"] = macd["MACDs_12_26_9"]
+    df["RSI"] = ta.rsi(df["close"], length=14)
+    return df
+
+def analyze_symbol(symbol):
+    df = fetch_klines(symbol)
+    if df is None or df.empty or len(df) < 26:
+        return f"{symbol}: Ошибка анализа — недостаточно данных"
+    try:
+        df = calculate_indicators(df)
+        last = df.iloc[-1]
+        recommendation = ""
+        if last["RSI"] < 30:
+            recommendation = "📉 Перепроданность — возможен отскок. Рассмотреть покупку."
+        elif last["RSI"] > 70:
+            recommendation = "📈 Перекупленность — возможно снижение. Осторожно с покупками."
+        elif last["MACD"] > last["MACD_signal"]:
+            recommendation = "🟢 MACD бычий кросс — сигнал к покупке."
+        else:
+            recommendation = "🔴 MACD медвежий кросс — сигнал к продаже или удержанию."
+        return (
+            f"📊 Анализ {symbol}:
+"
+            f"Цена: {last['close']:.6f}
+"
+            f"RSI: {last['RSI']:.2f}
+"
+            f"MACD: {last['MACD']:.6f}
+"
+            f"MACD Signal: {last['MACD_signal']:.6f}
+"
+            f"{recommendation}"
+        )
+    except Exception as e:
+        return f"{symbol}: Ошибка анализа — {str(e)}"
 
 def send_to_telegram(message):
     for chat_id in CHAT_IDS:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {"chat_id": chat_id, "text": message}
-        requests.post(url, data=payload)
-
-
-def fetch_binance_klines(symbol, interval="1h", limit=100):
-    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
-    response = requests.get(url)
-    data = response.json()
-    df = pd.DataFrame(data, columns=["time", "open", "high", "low", "close", "volume", "close_time", "qav", "num_trades", "taker_base_vol", "taker_quote_vol", "ignore"])
-    df["close"] = pd.to_numeric(df["close"])
-    return df
-
-
-def calculate_indicators(df):
-    df["EMA_12"] = df["close"].ewm(span=12, adjust=False).mean()
-    df["EMA_26"] = df["close"].ewm(span=26, adjust=False).mean()
-    df["MACD"] = df["EMA_12"] - df["EMA_26"]
-    df["Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
-    delta = df["close"].diff()
-    gain = delta.where(delta > 0, 0)
-    loss = -delta.where(delta < 0, 0)
-    avg_gain = gain.rolling(window=14).mean()
-    avg_loss = loss.rolling(window=14).mean()
-    rs = avg_gain / avg_loss
-    df["RSI"] = 100 - (100 / (1 + rs))
-    return df
-
-
-def analyze(symbol):
-    df = fetch_binance_klines(symbol)
-    df = calculate_indicators(df)
-    latest = df.iloc[-1]
-    price = latest["close"]
-    macd = latest["MACD"]
-    signal = latest["Signal"]
-    rsi = latest["RSI"]
-    trend = "🔼 бычий" if macd > signal else ("🔽 неопределенный" if abs(macd - signal) < 0.01 else "🔽 медвежий")
-
-    recommendation = "💼 Покупать" if rsi < 30 else ("🔓 Продавать" if rsi > 70 else "🤚 Держать")
-
-    return f"\n\n📊 {symbol}\nЦена: {price:.6f}\nMACD: {macd:.6f}, Сигнал: {signal:.6f}\nRSI: {rsi:.2f}\nТренд: {trend}\nРекомендация: {recommendation}"
-
+        requests.post(url, data={"chat_id": chat_id, "text": message})
 
 @app.route("/report-daily")
 def report():
-    key = request.args.get("key")
-    if key != "pepe_alpha_234":
-        return "Unauthorized", 401
+    coins = ["PEPEUSDT", "JTOUSDT", "ETHUSDT", "SOLUSDT"]
+    report = ["📰 Ежедневный отчёт:
+"]
+    for coin in coins:
+        report.append(analyze_symbol(coin))
+    final_report = "
 
-    report_message = "📰 Ежедневный отчёт:"
-    for symbol in symbols:
-        try:
-            report_message += analyze(symbol)
-        except Exception as e:
-            report_message += f"\n\n{symbol}: Ошибка анализа — {str(e)}"
-
-    send_to_telegram(report_message)
-    return "Report sent"
-
+".join(report)
+    send_to_telegram(final_report)
+    return "Отчёт отправлен"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
