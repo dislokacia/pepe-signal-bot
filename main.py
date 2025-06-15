@@ -3,7 +3,6 @@ import requests
 import pandas as pd
 from flask import Flask
 from datetime import datetime
-import numpy as np
 
 app = Flask(__name__)
 
@@ -20,7 +19,7 @@ def send_to_telegram(text):
         }
         requests.post(url, data=data)
 
-def fetch_pepe_data():
+def fetch_data():
     url = "https://api.binance.com/api/v3/klines"
     params = {
         "symbol": "PEPEUSDT",
@@ -28,17 +27,16 @@ def fetch_pepe_data():
         "limit": 100
     }
     response = requests.get(url, params=params)
-    if response.status_code == 200:
-        data = response.json()
-        df = pd.DataFrame(data, columns=[
-            "timestamp", "open", "high", "low", "close",
-            "volume", "close_time", "quote_asset_volume",
-            "number_of_trades", "taker_buy_base",
-            "taker_buy_quote", "ignore"
-        ])
-        df["close"] = df["close"].astype(float)
-        return df
-    return None
+    if response.status_code != 200:
+        return None
+    data = response.json()
+    df = pd.DataFrame(data, columns=[
+        "timestamp", "open", "high", "low", "close", "volume",
+        "close_time", "quote_asset_volume", "number_of_trades",
+        "taker_buy_base", "taker_buy_quote", "ignore"
+    ])
+    df["close"] = df["close"].astype(float)
+    return df
 
 def calculate_macd(df):
     df["ema12"] = df["close"].ewm(span=12, adjust=False).mean()
@@ -49,19 +47,21 @@ def calculate_macd(df):
 
 @app.route("/report-daily")
 def report():
-    df = fetch_pepe_data()
+    df = fetch_data()
     if df is None or len(df) < 26:
         return "Недостаточно данных от Binance для MACD."
     df = calculate_macd(df)
-    last_row = df.iloc[-1]
-    macd = last_row["macd"]
-    signal = last_row["signal"]
-    recommendation = "🔼 *Покупать*" if macd > signal else "🔽 *Продавать*"
-    send_to_telegram(f"📊 PEPE анализ:
-MACD: {macd:.8f}
-Signal: {signal:.8f}
-Рекомендация: {recommendation}")
-    return "Отправлено"
+    last = df.iloc[-1]
+    macd = last["macd"]
+    signal = last["signal"]
+    trend = "🟢 *ПОКУПАТЬ*" if macd > signal else "🔴 *ПРОДАВАТЬ*"
+    send_to_telegram(f"""📊 PEPE анализ:
+
+MACD: `{macd:.8f}`
+Signal: `{signal:.8f}`
+Тренд: {trend}
+""")
+    return "Сообщение отправлено"
 
 if __name__ == "__main__":
     app.run()
