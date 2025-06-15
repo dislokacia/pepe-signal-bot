@@ -1,4 +1,5 @@
-from flask import FlaskMore actions
+
+from flask import Flask
 import requests
 import pandas as pd
 from datetime import datetime, timedelta
@@ -34,12 +35,13 @@ def generate_signal(df):
         return "➖ Сигналов нет"
 
 def send_to_telegram(message):
-    url = "https://api.telegram.org/bot<your_token>/sendMessage"
-    data = {
-        "chat_id": "<your_chat_id>",
-        "text": message
-    }
-    requests.post(url, data=data)
+    url = "https://api.telegram.org/bot7648757274:AAFtd6ZSR8woBGkcQ7NBOPE559zHwdH65Cw/sendMessage"
+    for chat_id in ["6220574513", "788954480"]:
+        data = {
+            "chat_id": chat_id,
+            "text": message
+        }
+        requests.post(url, data=data)
 
 @app.route("/")
 def home():
@@ -56,15 +58,15 @@ def report():
         signal = generate_signal(df)
         price = df["close"].iloc[-1]
         send_to_telegram(
-    f"📊 PEPE анализ:\n"
-    f"Цена: {price}\n"
-    f"MACD: {df['MACD'].iloc[-1]:.8f}\n"
-    f"Сигнал: {signal}"
-)
+            f"📊 PEPE анализ:\n"
+            f"Цена: {price}\n"
+            f"MACD: {df['MACD'].iloc[-1]:.8f}\n"
+            f"Сигнал: {signal}"
+        )
         return "Отчет отправлен"
     except Exception as e:
         send_to_telegram(f"❗ Ошибка в отчете PEPE: {str(e)}")
         return f"Ошибка: {str(e)}"
 
-if __name__ == "__main__":More actions
+if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
