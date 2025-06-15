@@ -1,61 +1,50 @@
-
+from flask import Flask, request
 import requests
 import pandas as pd
-import pandas_ta as ta
-from flask import Flask
-import time
 
 app = Flask(__name__)
 
-TOKEN = "7648757274:AAFtd6ZSR8woBGkcQ7NBOPE559zHwdH65Cw"
-CHAT_IDS = ["6220574513", "788954480"]
+BOT_TOKEN = "7648757274:AAFtd6ZSR8woBGkcQ7NBOPE559zHwdH65Cw"
+CHAT_IDS = ["788954480", "6220574513"]
 
-def send_to_telegram(message):
+BINANCE_URL = "https://api.binance.com/api/v3/klines"
+
+def send_message(text):
     for chat_id in CHAT_IDS:
-        url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-        data = {"chat_id": chat_id, "text": message}
-        try:
-            requests.post(url, data=data, timeout=10)
-        except Exception as e:
-            print(f"Ошибка при отправке в Telegram: {e}")
-
-def analyze_token(symbol):
-    try:
-        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=15m&limit=100"
-        response = requests.get(url, timeout=10)
-        data = response.json()
-
-        df = pd.DataFrame(data, columns=[
-            'timestamp', 'open', 'high', 'low', 'close', 'volume',
-            'close_time', 'quote_asset_volume', 'number_of_trades',
-            'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
-        ])
-        df['close'] = df['close'].astype(float)
-        df['macd'] = ta.macd(df['close']).iloc[:, 0]
-        df['signal'] = ta.macd(df['close']).iloc[:, 1]
-        df['rsi'] = ta.rsi(df['close'], length=14)
-
-        macd = df['macd'].iloc[-1]
-        signal = df['signal'].iloc[-1]
-        rsi = df['rsi'].iloc[-1]
-        trend = "бычий" if macd > signal else "медвежий"
-
-        recommendation = "Покупать" if trend == "бычий" and rsi < 70 else "Продавать" if trend == "медвежий" and rsi > 50 else "Держать"
-
-        return f"--- Анализ {symbol} ---\nMACD: {macd:.5f}\nSignal: {signal:.5f}\nRSI: {rsi:.2f}\nТренд: {trend}\nРекомендация: {recommendation}"
-    except Exception as e:
-        return f"❗ Ошибка при анализе {symbol}: {e}"
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        data = {"chat_id": chat_id, "text": text}
+        requests.post(url, data=data)
 
 @app.route("/report-daily")
 def report():
     try:
-        pepe = analyze_token("PEPEUSDT")
-        jto = analyze_token("JTOUSDT")
-        message = pepe + "\n\n" + jto
-        send_to_telegram(message)
-        return "Отчёт отправлен"
-    except Exception as e:
-        return f"Ошибка: {str(e)}"
+        params = {"symbol": "PEPEUSDT", "interval": "15m", "limit": 100}
+        r = requests.get(BINANCE_URL, params=params)
+        data = r.json()
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+        df = pd.DataFrame(data, columns=['time', 'open', 'high', 'low', 'close', 'volume', '_', '_', '_', '_', '_', '_'])
+        df['close'] = df['close'].astype(float)
+
+        ema12 = df['close'].ewm(span=12).mean()
+        ema26 = df['close'].ewm(span=26).mean()
+        macd = ema12 - ema26
+        signal = macd.ewm(span=9).mean()
+
+        last_macd = macd.iloc[-1]
+        last_signal = signal.iloc[-1]
+        prev_macd = macd.iloc[-2]
+        prev_signal = signal.iloc[-2]
+
+        if prev_macd < prev_signal and last_macd > last_signal:
+            decision = "📈 Сигнал: MACD пересёк вверх. Покупать PEPE."
+        else:
+            decision = "⏳ Пока сигналов на покупку нет."
+
+        send_message(decision)
+        return decision
+
+    except Exception as e:
+        send_message(f"Ошибка: {e}")
+        return f"Error: {e}", 500
+
+app.run()
