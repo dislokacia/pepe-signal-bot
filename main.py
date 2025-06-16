@@ -1,133 +1,85 @@
 import requests
 import pandas as pd
 import numpy as np
+from flask import Flask, request
 import time
-from datetime import datetime, timedelta
 
-COINGECKO_RANGE_URL = "https://api.coingecko.com/api/v3/coins/{id}/market_chart/range"
+app = Flask(__name__)
+
 TELEGRAM_TOKEN = "7648757274:AAFtd6ZSR8woBGkcQ7NBOPE559zHwdH65Cw"
 CHAT_IDS = ["6220574513", "788954480"]
+SYMBOLS = ["pepe", "jito", "ETHUSDT", "SOLUSDT"]
 
-SYMBOL_TO_COINGECKO_ID = {
-    "BTCUSDT": "bitcoin",
-    "ETHUSDT": "ethereum",
-    "SOLUSDT": "solana",
-    "JTOUSDT": "jito",
-    "ADAUSDT": "cardano",
-    "PEPEUSDT": "pepe"
-}
+BINANCE_URL = "https://api.binance.com/api/v3/klines"
 
-def fetch_coingecko_data(symbol):
-    try:
-        coin_id = SYMBOL_TO_COINGECKO_ID.get(symbol)
-        if not coin_id:
-            raise ValueError("Unknown CoinGecko ID")
-
-        now = int(time.time())
-        one_day_ago = now - 25 * 3600
-        url = COINGECKO_RANGE_URL.format(id=coin_id)
-        params = {
-            "vs_currency": "usd",
-            "from": str(one_day_ago),
-            "to": str(now)
-        }
-        response = requests.get(url, params=params)
-        print(f"[DEBUG] {symbol} status: {response.status_code}, text: {response.text[:200]}")
-        data = response.json()
-        prices = data.get("prices", [])
-        print(f"[DEBUG] {symbol} — получено {len(prices)} точек данных от CoinGecko")
-        if not prices or len(prices) < 10:
-            raise ValueError("Not enough CoinGecko data")
-        df = pd.DataFrame(prices, columns=["timestamp", "close"])
-        df["close"] = df["close"].astype(float)
-        return df
-    except Exception as e:
-        print(f"Ошибка CoinGecko {symbol}: {e}")
-        return None
-
-# Индикаторы
-
-def calculate_rsi(prices, period=14):
-    delta = prices.diff()
-    gain = delta.where(delta > 0, 0.0).rolling(window=period).mean()
-    loss = -delta.where(delta < 0, 0.0).rolling(window=period).mean()
-    rs = gain / loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
-
-def calculate_ema(prices, span):
-    return prices.ewm(span=span, adjust=False).mean()
-
-def calculate_macd(prices):
-    ema12 = calculate_ema(prices, 12)
-    ema26 = calculate_ema(prices, 26)
-    macd_line = ema12 - ema26
-    signal_line = calculate_ema(macd_line, 9)
-    histogram = macd_line - signal_line
-    return macd_line, signal_line, histogram
-
-# Анализ одного актива с фильтрацией по RSI
-
-def analyze_symbol(symbol):
-    df = fetch_coingecko_data(symbol)
-    if df is None or df.shape[0] < 10:
-        return None
-
-    closes = df["close"]
-
-    rsi = calculate_rsi(closes).iloc[-1]
-    macd, signal, hist = calculate_macd(closes)
-    macd_val = macd.iloc[-1]
-    signal_val = signal.iloc[-1]
-    hist_val = hist.iloc[-1]
-
-    ema12 = calculate_ema(closes, 12).iloc[-1]
-    ema26 = calculate_ema(closes, 26).iloc[-1]
-
-    trend = "восходящий" if ema12 > ema26 else "нисходящий"
-
-    recommendation = "Держать"
-    if rsi < 35:
-        recommendation = "Покупать (перепроданность)"
-    elif rsi > 70:
-        recommendation = "Фиксировать прибыль (перекупленность)"
-
-    if rsi < 35 or rsi > 70:
-        return (f"📊 {symbol}\n"
-                f"Цена: {closes.iloc[-1]:.4f}\n"
-                f"RSI: {rsi:.2f}\n"
-                f"MACD: {macd_val:.4f} | Сигнал: {signal_val:.4f} | Гистограмма: {hist_val:.4f}\n"
-                f"EMA12: {ema12:.4f} | EMA26: {ema26:.4f}\n"
-                f"Тренд: {trend}\n"
-                f"Рекомендация: {recommendation}\n")
-    return None
-
-# Генерация отчета с паузой между вызовами
-
-def generate_report():
-    symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "JTOUSDT", "ADAUSDT", "PEPEUSDT"]
-    results = []
-    for symbol in symbols:
-        report = analyze_symbol(symbol)
-        results.append(report)
-        time.sleep(2)
-    return "\n".join(filter(None, results))
-
-# Отправка в Telegram
-
-def send_telegram_message(message):
-    if not message:
-        return
+def send_to_telegram(message):
     for chat_id in CHAT_IDS:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         payload = {"chat_id": chat_id, "text": message}
-        try:
-            requests.post(url, json=payload)
-        except Exception as e:
-            print(f"Ошибка Telegram: {e}")
+        requests.post(url, data=payload)
 
-# Тестовая отправка
+def fetch_binance_data(symbol, interval="15m", limit=100):
+    params = {"symbol": symbol, "interval": interval, "limit": limit}
+    response = requests.get(BINANCE_URL, params=params)
+    if response.status_code == 200:
+        data = response.json()
+        df = pd.DataFrame(data, columns=["timestamp", "open", "high", "low", "close", "volume", "close_time", "qav", "num_trades", "taker_base_vol", "taker_quote_vol", "ignore"])
+        df["close"] = pd.to_numeric(df["close"])
+        return df
+    return None
+
+def calculate_indicators(df):
+    df["EMA12"] = df["close"].ewm(span=12).mean()
+    df["EMA26"] = df["close"].ewm(span=26).mean()
+    df["MACD"] = df["EMA12"] - df["EMA26"]
+    df["Signal"] = df["MACD"].ewm(span=9).mean()
+    delta = df["close"].diff()
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    avg_gain = gain.rolling(14).mean()
+    avg_loss = loss.rolling(14).mean()
+    rs = avg_gain / avg_loss
+    df["RSI"] = 100 - (100 / (1 + rs))
+    return df
+
+def analyze_symbol(symbol):
+    df = fetch_binance_data(symbol)
+    if df is None or df.shape[0] < 30:
+        return f"Ошибка анализа {symbol}: недостаточно данных"
+    df = calculate_indicators(df)
+    price = df["close"].iloc[-1]
+    macd = df["MACD"].iloc[-1]
+    signal = df["Signal"].iloc[-1]
+    rsi = df["RSI"].iloc[-1]
+
+    decision = ""
+    if macd > signal and rsi < 70:
+        decision = "Покупать (бычий сигнал)"
+    elif macd < signal and rsi > 70:
+        decision = "Продавать (медвежий сигнал)"
+    else:
+        decision = "Ждать (неопределенность)"
+
+    return f"📊 Анализ {symbol}:\nЦена: {price:.6f}\nMACD: {macd:.6f}\nSignal: {signal:.6f}\nRSI: {rsi:.2f}\nРешение: {decision}"
+
+@app.route("/report-daily")
+def report_daily():
+    key = request.args.get("key")
+    if key != "pepe_alpha_234":
+        return "Invalid key", 403
+
+    messages = []
+    for symbol in SYMBOLS:
+        try:
+            result = analyze_symbol(symbol)
+            messages.append(result)
+            time.sleep(1.2)  # avoid hitting rate limits
+        except Exception as e:
+            messages.append(f"Ошибка анализа {symbol}: {str(e)}")
+
+    final_message = "\n\n".join(messages)
+    send_to_telegram(f"📰 Ежедневный отчёт:\n\n{final_message}")
+    return "Report sent"
+
 if __name__ == "__main__":
-    report = generate_report()
-    print(report)
-    send_telegram_message(report)
+    app.run(host="0.0.0.0", port=5000)
