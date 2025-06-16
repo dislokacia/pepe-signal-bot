@@ -4,8 +4,19 @@ import numpy as np
 from datetime import datetime
 
 BINANCE_URL = "https://api.binance.com/api/v3/klines"
+COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/{id}/market_chart"
+
+SYMBOL_TO_COINGECKO_ID = {
+    "BTCUSDT": "bitcoin",
+    "ETHUSDT": "ethereum",
+    "SOLUSDT": "solana",
+    "JTOUSDT": "jito",
+    "ADAUSDT": "cardano",
+    "PEPEUSDT": "pepe"
+}
 
 # Получение данных с Binance
+
 def fetch_binance_data(symbol):
     try:
         params = {
@@ -14,7 +25,11 @@ def fetch_binance_data(symbol):
             "limit": 100
         }
         response = requests.get(BINANCE_URL, params=params)
+        if response.status_code != 200:
+            raise ValueError(f"Binance API error: {response.status_code} {response.text}")
         data = response.json()
+        if not data:
+            raise ValueError("Empty response from Binance")
         df = pd.DataFrame(data, columns=[
             "open_time", "open", "high", "low", "close", "volume",
             "close_time", "quote_asset_volume", "number_of_trades",
@@ -22,7 +37,28 @@ def fetch_binance_data(symbol):
         df["close"] = df["close"].astype(float)
         return df
     except Exception as e:
-        print(f"Ошибка запроса {symbol}: {e}")
+        print(f"Ошибка Binance {symbol}: {e}")
+        return fetch_coingecko_data(symbol)
+
+# Получение данных с CoinGecko
+
+def fetch_coingecko_data(symbol):
+    try:
+        coin_id = SYMBOL_TO_COINGECKO_ID.get(symbol)
+        if not coin_id:
+            raise ValueError("Unknown CoinGecko ID")
+        url = COINGECKO_URL.format(id=coin_id)
+        params = {"vs_currency": "usd", "days": "1", "interval": "hourly"}
+        response = requests.get(url, params=params)
+        data = response.json()
+        prices = data.get("prices", [])
+        if not prices or len(prices) < 30:
+            raise ValueError("Not enough CoinGecko data")
+        df = pd.DataFrame(prices, columns=["timestamp", "close"])
+        df["close"] = df["close"].astype(float)
+        return df
+    except Exception as e:
+        print(f"Ошибка CoinGecko {symbol}: {e}")
         return None
 
 # Индикаторы
