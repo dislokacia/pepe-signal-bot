@@ -5,6 +5,8 @@ from datetime import datetime
 
 BINANCE_URL = "https://api.binance.com/api/v3/klines"
 COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/{id}/market_chart"
+TELEGRAM_TOKEN = "7648757274:AAFtd6ZSR8woBGkcQ7NBOPE559zHwdH65Cw"
+CHAT_IDS = ["6220574513", "788954480"]
 
 SYMBOL_TO_COINGECKO_ID = {
     "BTCUSDT": "bitcoin",
@@ -121,6 +123,18 @@ def generate_report():
     report = [analyze_symbol(symbol) for symbol in symbols]
     return "\n".join(report)
 
+# Отправка в Telegram
+def send_telegram_message(message):
+    for chat_id in CHAT_IDS:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {"chat_id": chat_id, "text": message}
+        try:
+            requests.post(url, json=payload)
+        except Exception as e:
+            print(f"Ошибка Telegram: {e}")
+
 # Тестовая отправка
 if __name__ == "__main__":
-    print(generate_report())
+    report = generate_report()
+    print(report)
+    send_telegram_message(report)
