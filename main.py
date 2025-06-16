@@ -28,7 +28,8 @@ def fetch_coingecko_data(symbol):
         response = requests.get(url, params=params)
         data = response.json()
         prices = data.get("prices", [])
-        if not prices or len(prices) < 14:
+        print(f"[DEBUG] {symbol} — получено {len(prices)} точек данных от CoinGecko")
+        if not prices or len(prices) < 10:
             raise ValueError("Not enough CoinGecko data")
         df = pd.DataFrame(prices, columns=["timestamp", "close"])
         df["close"] = df["close"].astype(float)
@@ -68,7 +69,7 @@ def calculate_macd(prices):
 
 def analyze_symbol(symbol):
     df = fetch_coingecko_data(symbol)
-    if df is None or df.shape[0] < 14:
+    if df is None or df.shape[0] < 10:
         return None
 
     closes = df["close"]
