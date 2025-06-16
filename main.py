@@ -1,85 +1,90 @@
 import requests
 import pandas as pd
 import numpy as np
-from flask import Flask, request
-import time
-
-app = Flask(__name__)
-
-TELEGRAM_TOKEN = "7648757274:AAFtd6ZSR8woBGkcQ7NBOPE559zHwdH65Cw"
-CHAT_IDS = ["6220574513", "788954480"]
-SYMBOLS = ["PEPEUSDT", "JTOUSDT", "ETHUSDT", "SOLUSDT"]
+from datetime import datetime
 
 BINANCE_URL = "https://api.binance.com/api/v3/klines"
 
-def send_to_telegram(message):
-    for chat_id in CHAT_IDS:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {"chat_id": chat_id, "text": message}
-        requests.post(url, data=payload)
-
-def fetch_binance_data(symbol, interval="15m", limit=100):
-    params = {"symbol": symbol, "interval": interval, "limit": limit}
-    response = requests.get(BINANCE_URL, params=params)
-    if response.status_code == 200:
+# Получение данных с Binance
+def fetch_binance_data(symbol):
+    try:
+        params = {
+            "symbol": symbol,
+            "interval": "15m",
+            "limit": 100
+        }
+        response = requests.get(BINANCE_URL, params=params)
         data = response.json()
-        df = pd.DataFrame(data, columns=["timestamp", "open", "high", "low", "close", "volume", "close_time", "qav", "num_trades", "taker_base_vol", "taker_quote_vol", "ignore"])
-        df["close"] = pd.to_numeric(df["close"])
+        df = pd.DataFrame(data, columns=[
+            "open_time", "open", "high", "low", "close", "volume",
+            "close_time", "quote_asset_volume", "number_of_trades",
+            "taker_buy_base", "taker_buy_quote", "ignore"])
+        df["close"] = df["close"].astype(float)
         return df
-    return None
+    except Exception as e:
+        print(f"Ошибка запроса {symbol}: {e}")
+        return None
 
-def calculate_indicators(df):
-    df["EMA12"] = df["close"].ewm(span=12).mean()
-    df["EMA26"] = df["close"].ewm(span=26).mean()
-    df["MACD"] = df["EMA12"] - df["EMA26"]
-    df["Signal"] = df["MACD"].ewm(span=9).mean()
-    delta = df["close"].diff()
-    gain = delta.where(delta > 0, 0)
-    loss = -delta.where(delta < 0, 0)
-    avg_gain = gain.rolling(14).mean()
-    avg_loss = loss.rolling(14).mean()
-    rs = avg_gain / avg_loss
-    df["RSI"] = 100 - (100 / (1 + rs))
-    return df
+# Индикаторы
 
+def calculate_rsi(prices, period=14):
+    delta = prices.diff()
+    gain = delta.where(delta > 0, 0.0).rolling(window=period).mean()
+    loss = -delta.where(delta < 0, 0.0).rolling(window=period).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+def calculate_ema(prices, span):
+    return prices.ewm(span=span, adjust=False).mean()
+
+def calculate_macd(prices):
+    ema12 = calculate_ema(prices, 12)
+    ema26 = calculate_ema(prices, 26)
+    macd_line = ema12 - ema26
+    signal_line = calculate_ema(macd_line, 9)
+    histogram = macd_line - signal_line
+    return macd_line, signal_line, histogram
+
+# Анализ одного актива
 def analyze_symbol(symbol):
     df = fetch_binance_data(symbol)
-    if df is None or df.shape[0] < 30:
+    if df is None or df.shape[0] < 14:
         return f"Ошибка анализа {symbol}: недостаточно данных"
-    df = calculate_indicators(df)
-    price = df["close"].iloc[-1]
-    macd = df["MACD"].iloc[-1]
-    signal = df["Signal"].iloc[-1]
-    rsi = df["RSI"].iloc[-1]
 
-    decision = ""
-    if macd > signal and rsi < 70:
-        decision = "Покупать (бычий сигнал)"
-    elif macd < signal and rsi > 70:
-        decision = "Продавать (медвежий сигнал)"
-    else:
-        decision = "Ждать (неопределенность)"
+    closes = df["close"]
 
-    return f"📊 Анализ {symbol}:\nЦена: {price:.6f}\nMACD: {macd:.6f}\nSignal: {signal:.6f}\nRSI: {rsi:.2f}\nРешение: {decision}"
+    rsi = calculate_rsi(closes).iloc[-1]
+    macd, signal, hist = calculate_macd(closes)
+    macd_val = macd.iloc[-1]
+    signal_val = signal.iloc[-1]
+    hist_val = hist.iloc[-1]
 
-@app.route("/report-daily")
-def report_daily():
-    key = request.args.get("key")
-    if key != "pepe_alpha_234":
-        return "Invalid key", 403
+    ema12 = calculate_ema(closes, 12).iloc[-1]
+    ema26 = calculate_ema(closes, 26).iloc[-1]
 
-    messages = []
-    for symbol in SYMBOLS:
-        try:
-            result = analyze_symbol(symbol)
-            messages.append(result)
-            time.sleep(1.2)  # avoid hitting rate limits
-        except Exception as e:
-            messages.append(f"Ошибка анализа {symbol}: {str(e)}")
+    trend = "восходящий" if ema12 > ema26 else "нисходящий"
 
-    final_message = "\n\n".join(messages)
-    send_to_telegram(f"📰 Ежедневный отчёт:\n\n{final_message}")
-    return "Report sent"
+    recommendation = "Держать"
+    if rsi < 35:
+        recommendation = "Покупать (перепроданность)"
+    elif rsi > 70:
+        recommendation = "Фиксировать прибыль (перекупленность)"
 
+    return (f"📊 {symbol}\n"
+            f"Цена: {closes.iloc[-1]:.4f}\n"
+            f"RSI: {rsi:.2f}\n"
+            f"MACD: {macd_val:.4f} | Сигнал: {signal_val:.4f} | Гистограмма: {hist_val:.4f}\n"
+            f"EMA12: {ema12:.4f} | EMA26: {ema26:.4f}\n"
+            f"Тренд: {trend}\n"
+            f"Рекомендация: {recommendation}\n")
+
+# Генерация отчета
+def generate_report():
+    symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "JTOUSDT", "ADAUSDT", "PEPEUSDT"]
+    report = [analyze_symbol(symbol) for symbol in symbols]
+    return "\n".join(report)
+
+# Тестовая отправка
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    print(generate_report())
