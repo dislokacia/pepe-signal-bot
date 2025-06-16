@@ -1,82 +1,97 @@
-
-from flask import Flask, request
 import requests
 import pandas as pd
 import numpy as np
-import time
-import datetime
-from binance.client import Client
+from flask import Flask, request
 
 app = Flask(__name__)
 
 TELEGRAM_TOKEN = "7648757274:AAFtd6ZSR8woBGkcQ7NBOPE559zHwdH65Cw"
-TELEGRAM_CHAT_IDS = ["6220574513", "788954480"]
+CHAT_IDS = ["6220574513", "788954480"]
 
-def send_to_telegram(message: str):
-    for chat_id in TELEGRAM_CHAT_IDS:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        data = {"chat_id": chat_id, "text": message}
-        requests.post(url, data=data)
+symbol_mapping = {
+    "PEPEUSDT": "pepe",
+    "JTOUSDT": "jito",
+    "ETHUSDT": "ethereum",
+    "SOLUSDT": "solana"
+}
 
-def get_klines(symbol: str, interval: str = "1h", limit: int = 100):
-    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
-    response = requests.get(url)
-    return response.json()
-
-def analyze_symbol(symbol: str):
+def fetch_binance_data(symbol):
+    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1h&limit=100"
     try:
-        raw_data = get_klines(symbol)
-        df = pd.DataFrame(raw_data, columns=[
-            "open_time", "open", "high", "low", "close", "volume",
-            "close_time", "quote_asset_volume", "num_trades",
-            "taker_buy_base_asset_volume", "taker_buy_quote_asset_volume", "ignore"
-        ])
+        data = requests.get(url).json()
+        df = pd.DataFrame(data, columns=["timestamp", "open", "high", "low", "close", "volume", "close_time", "quote_asset_volume", "number_of_trades", "taker_buy_base", "taker_buy_quote", "ignore"])
         df["close"] = df["close"].astype(float)
+        return df
+    except:
+        return None
 
-        # EMA
-        df["EMA12"] = df["close"].ewm(span=12, adjust=False).mean()
-        df["EMA26"] = df["close"].ewm(span=26, adjust=False).mean()
+def fetch_coingecko(symbol):
+    coin = symbol_mapping.get(symbol)
+    if not coin:
+        return None
+    url = f"https://api.coingecko.com/api/v3/coins/{coin}/market_chart?vs_currency=usd&days=1&interval=hourly"
+    try:
+        resp = requests.get(url).json()
+        prices = resp.get("prices", [])
+        df = pd.DataFrame(prices, columns=["timestamp", "close"])
+        df["close"] = df["close"].astype(float)
+        return df
+    except:
+        return None
 
-        # MACD
-        df["MACD"] = df["EMA12"] - df["EMA26"]
-        df["Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
+def calculate_indicators(df):
+    df["EMA"] = df["close"].ewm(span=20, adjust=False).mean()
+    df["MACD"] = df["close"].ewm(span=12, adjust=False).mean() - df["close"].ewm(span=26, adjust=False).mean()
+    df["Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
+    delta = df["close"].diff()
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    avg_gain = gain.rolling(window=14).mean()
+    avg_loss = loss.rolling(window=14).mean()
+    rs = avg_gain / avg_loss
+    df["RSI"] = 100 - (100 / (1 + rs))
+    return df
 
-        # RSI
-        delta = df["close"].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        df["RSI"] = 100 - (100 / (1 + rs))
+def analyze_symbol(symbol):
+    df = fetch_binance_data(symbol)
+    if df is None or df.empty:
+        df = fetch_coingecko(symbol)
+        if df is None or df.empty:
+            return f"Ошибка анализа {symbol}: недостаточно данных"
 
-        latest = df.iloc[-1]
-        trend = "восходящий 📈" if latest.MACD > latest.Signal else "нисходящий 📉"
-        rsi_state = (
-            "перекупленность 🔺" if latest.RSI > 70 else
-            "перепроданность 🔻" if latest.RSI < 30 else
-            "нормальный уровень"
-        )
+    try:
+        df = calculate_indicators(df)
+        rsi = df["RSI"].iloc[-1]
+        macd = df["MACD"].iloc[-1]
+        signal = df["Signal"].iloc[-1]
+        ema = df["EMA"].iloc[-1]
+        price = df["close"].iloc[-1]
 
-        message = (
-    f"📊 Анализ {symbol}:\n"
-    f"Цена: {latest['close']:.6f}\n"
-    f"MACD: {latest['MACD']:.6f}, Signal: {latest['Signal']:.6f}\n"
-    f"RSI: {latest['RSI']:.2f} ({rsi_state})\n"
-    f"Тренд: {trend}"
-)
-        send_to_telegram(message)
+        macd_trend = "бычий" if macd > signal else "медвежий"
+        rsi_status = "перекупленность" if rsi > 70 else "перепроданность" if rsi < 30 else "нейтрально"
+
+        recommendation = "покупать" if macd > signal and rsi < 70 else "продавать" if macd < signal and rsi > 70 else "наблюдать"
+
+        return f"📊 Анализ {symbol} (цена: {price:.6f})\nMACD: {macd:.4f} ({macd_trend})\nRSI: {rsi:.2f} ({rsi_status})\nEMA: {ema:.4f}\nРекомендация: {recommendation}"
     except Exception as e:
-        send_to_telegram(f"❗ Ошибка анализа {symbol}: {str(e)}")
+        return f"Ошибка анализа {symbol}: {str(e)}"
+
+def send_to_telegram(text):
+    for chat_id in CHAT_IDS:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {"chat_id": chat_id, "text": text}
+        requests.post(url, data=payload)
 
 @app.route("/report-daily")
 def report_daily():
-    key = request.args.get("key")
-    if key != "pepe_alpha_234":
-        return "Unauthorized", 403
-
-    for symbol in ["PEPEUSDT", "JTOUSDT", "ETHUSDT", "SOLUSDT"]:
-        analyze_symbol(symbol)
-
-    return "Report sent", 200
+    symbols = ["PEPEUSDT", "JTOUSDT", "ETHUSDT", "SOLUSDT"]
+    messages = []
+    for symbol in symbols:
+        result = analyze_symbol(symbol)
+        messages.append(result)
+    full_report = "\n\n".join(messages)
+    send_to_telegram("📰 Ежедневный отчёт:\n\n" + full_report)
+    return "OK"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
