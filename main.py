@@ -92,11 +92,12 @@ def calculate_macd(prices):
     histogram = macd_line - signal_line
     return macd_line, signal_line, histogram
 
-# Анализ одного актива
+# Анализ одного актива с фильтрацией по RSI
+
 def analyze_symbol(symbol):
     df = fetch_binance_data(symbol)
     if df is None or df.shape[0] < 14:
-        return f"Ошибка анализа {symbol}: недостаточно данных"
+        return None
 
     closes = df["close"]
 
@@ -117,22 +118,28 @@ def analyze_symbol(symbol):
     elif rsi > 70:
         recommendation = "Фиксировать прибыль (перекупленность)"
 
-    return (f"📊 {symbol}\n"
-            f"Цена: {closes.iloc[-1]:.4f}\n"
-            f"RSI: {rsi:.2f}\n"
-            f"MACD: {macd_val:.4f} | Сигнал: {signal_val:.4f} | Гистограмма: {hist_val:.4f}\n"
-            f"EMA12: {ema12:.4f} | EMA26: {ema26:.4f}\n"
-            f"Тренд: {trend}\n"
-            f"Рекомендация: {recommendation}\n")
+    if rsi < 35 or rsi > 70:
+        return (f"📊 {symbol}\n"
+                f"Цена: {closes.iloc[-1]:.4f}\n"
+                f"RSI: {rsi:.2f}\n"
+                f"MACD: {macd_val:.4f} | Сигнал: {signal_val:.4f} | Гистограмма: {hist_val:.4f}\n"
+                f"EMA12: {ema12:.4f} | EMA26: {ema26:.4f}\n"
+                f"Тренд: {trend}\n"
+                f"Рекомендация: {recommendation}\n")
+    return None
 
-# Генерация отчета
+# Генерация отчета только по важным сигналам
+
 def generate_report():
     symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "JTOUSDT", "ADAUSDT", "PEPEUSDT"]
-    report = [analyze_symbol(symbol) for symbol in symbols]
+    report = filter(None, [analyze_symbol(symbol) for symbol in symbols])
     return "\n".join(report)
 
 # Отправка в Telegram
+
 def send_telegram_message(message):
+    if not message:
+        return
     for chat_id in CHAT_IDS:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         payload = {"chat_id": chat_id, "text": message}
