@@ -1,9 +1,10 @@
 import requests
 import pandas as pd
 import numpy as np
+import time
 from datetime import datetime, timedelta
 
-COINGECKO_CHART_URL = "https://api.coingecko.com/api/v3/coins/{id}/market_chart"
+COINGECKO_RANGE_URL = "https://api.coingecko.com/api/v3/coins/{id}/market_chart/range"
 TELEGRAM_TOKEN = "7648757274:AAFtd6ZSR8woBGkcQ7NBOPE559zHwdH65Cw"
 CHAT_IDS = ["6220574513", "788954480"]
 
@@ -16,16 +17,22 @@ SYMBOL_TO_COINGECKO_ID = {
     "PEPEUSDT": "pepe"
 }
 
-# Получение данных с CoinGecko (hourly)
-
 def fetch_coingecko_data(symbol):
     try:
         coin_id = SYMBOL_TO_COINGECKO_ID.get(symbol)
         if not coin_id:
             raise ValueError("Unknown CoinGecko ID")
-        url = COINGECKO_CHART_URL.format(id=coin_id)
-        params = {"vs_currency": "usd", "days": "1", "interval": "hourly"}
+
+        now = int(time.time())
+        one_day_ago = now - 25 * 3600
+        url = COINGECKO_RANGE_URL.format(id=coin_id)
+        params = {
+            "vs_currency": "usd",
+            "from": str(one_day_ago),
+            "to": str(now)
+        }
         response = requests.get(url, params=params)
+        print(f"[DEBUG] {symbol} status: {response.status_code}, text: {response.text[:200]}")
         data = response.json()
         prices = data.get("prices", [])
         print(f"[DEBUG] {symbol} — получено {len(prices)} точек данных от CoinGecko")
@@ -36,13 +43,7 @@ def fetch_coingecko_data(symbol):
         return df
     except Exception as e:
         print(f"Ошибка CoinGecko {symbol}: {e}")
-        return generate_dummy_data()
-
-# Запасной вариант — фейковые данные
-
-def generate_dummy_data():
-    closes = [2 + 0.01 * np.sin(i / 3.0) for i in range(100)]
-    return pd.DataFrame({"close": closes})
+        return None
 
 # Индикаторы
 
