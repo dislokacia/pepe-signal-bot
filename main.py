@@ -102,12 +102,16 @@ def analyze_symbol(symbol):
                 f"Рекомендация: {recommendation}\n")
     return None
 
-# Генерация отчета только по важным сигналам
+# Генерация отчета с паузой между вызовами
 
 def generate_report():
     symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "JTOUSDT", "ADAUSDT", "PEPEUSDT"]
-    report = filter(None, [analyze_symbol(symbol) for symbol in symbols])
-    return "\n".join(report)
+    results = []
+    for symbol in symbols:
+        report = analyze_symbol(symbol)
+        results.append(report)
+        time.sleep(2)
+    return "\n".join(filter(None, results))
 
 # Отправка в Telegram
 
