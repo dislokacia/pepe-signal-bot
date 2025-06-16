@@ -3,8 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-BINANCE_URL = "https://api.binance.com/api/v3/klines"
-COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/{id}/market_chart/range"
+COINGECKO_CHART_URL = "https://api.coingecko.com/api/v3/coins/{id}/market_chart"
 TELEGRAM_TOKEN = "7648757274:AAFtd6ZSR8woBGkcQ7NBOPE559zHwdH65Cw"
 CHAT_IDS = ["6220574513", "788954480"]
 
@@ -17,46 +16,19 @@ SYMBOL_TO_COINGECKO_ID = {
     "PEPEUSDT": "pepe"
 }
 
-# Получение данных с Binance
-
-def fetch_binance_data(symbol):
-    try:
-        params = {
-            "symbol": symbol,
-            "interval": "15m",
-            "limit": 100
-        }
-        response = requests.get(BINANCE_URL, params=params)
-        if response.status_code != 200:
-            raise ValueError(f"Binance API error: {response.status_code} {response.text}")
-        data = response.json()
-        if not data:
-            raise ValueError("Empty response from Binance")
-        df = pd.DataFrame(data, columns=[
-            "open_time", "open", "high", "low", "close", "volume",
-            "close_time", "quote_asset_volume", "number_of_trades",
-            "taker_buy_base", "taker_buy_quote", "ignore"])
-        df["close"] = df["close"].astype(float)
-        return df
-    except Exception as e:
-        print(f"Ошибка Binance {symbol}: {e}")
-        return fetch_coingecko_data(symbol)
-
-# Получение данных с CoinGecko (расширенное)
+# Получение данных с CoinGecko (hourly)
 
 def fetch_coingecko_data(symbol):
     try:
         coin_id = SYMBOL_TO_COINGECKO_ID.get(symbol)
         if not coin_id:
             raise ValueError("Unknown CoinGecko ID")
-        end = int(datetime.now().timestamp())
-        start = int((datetime.now() - timedelta(hours=25)).timestamp())
-        url = COINGECKO_URL.format(id=coin_id)
-        params = {"vs_currency": "usd", "from": str(start), "to": str(end)}
+        url = COINGECKO_CHART_URL.format(id=coin_id)
+        params = {"vs_currency": "usd", "days": "1", "interval": "hourly"}
         response = requests.get(url, params=params)
         data = response.json()
         prices = data.get("prices", [])
-        if not prices or len(prices) < 30:
+        if not prices or len(prices) < 14:
             raise ValueError("Not enough CoinGecko data")
         df = pd.DataFrame(prices, columns=["timestamp", "close"])
         df["close"] = df["close"].astype(float)
@@ -95,7 +67,7 @@ def calculate_macd(prices):
 # Анализ одного актива с фильтрацией по RSI
 
 def analyze_symbol(symbol):
-    df = fetch_binance_data(symbol)
+    df = fetch_coingecko_data(symbol)
     if df is None or df.shape[0] < 14:
         return None
 
