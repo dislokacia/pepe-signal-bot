@@ -2,3 +2,4 @@ flask
 pandas
 requests
 pandas_ta
+python-binance
